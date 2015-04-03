@@ -18,6 +18,7 @@ using Newtonsoft.Json;
 
 namespace ARMExplorer.Controllers
 {
+    [UnhandledExceptionFilter]
     public class OperationController : ApiController
     {
         [Authorize]
@@ -115,7 +116,7 @@ namespace ARMExplorer.Controllers
                     if (i == 1 || i == 2 || i % 2 == 0)
                         sb.AppendFormat("{0}/", parts[i]);
                 }
-                Trace.TraceInformation("CSM_RESOURCE_TYPE; {0}; {1}", info.HttpMethod, sb.ToString().Trim(new[] { '/' }));
+                Telemetry.LogInfo("CSM_RESOUERCE_TYPE", new Dictionary<string, string> { { "type", sb.ToString().Trim(new[] { '/' }) }, { "verb", info.HttpMethod} });
             }
             catch { }
         }
