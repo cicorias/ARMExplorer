@@ -15,9 +15,11 @@ using System.Web.Http;
 using Hyak.Common;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json;
+using ARMExplorer.Telemetry;
 
 namespace ARMExplorer.Controllers
 {
+    [UnhandledExceptionFilter]
     public class OperationController : ApiController
     {
         [Authorize]
@@ -30,6 +32,7 @@ namespace ARMExplorer.Controllers
 
             var specs = Directory.Exists(HostingEnvironment.MapPath("~/App_Data/HydraSpecs"))
                 ? Directory.GetFiles(HostingEnvironment.MapPath("~/App_Data/HydraSpecs"))
+                  .Where(f => f.EndsWith(".dll"))
                   .Select(Assembly.LoadFile)
                   .Select(assembly => assembly.GetTypes())
                   .SelectMany(t => t)
@@ -40,7 +43,15 @@ namespace ARMExplorer.Controllers
 
             var speclessCsmApis = await HyakUtils.GetSpeclessCsmOperationsAsync();
 
-            var json = specs.Concat(speclessCsmApis);
+            var jsonSpecs = Directory.Exists(HostingEnvironment.MapPath("~/App_Data/JsonSpecs"))
+                ? Directory.GetFiles(HostingEnvironment.MapPath("~/App_Data/JsonSpecs"))
+                  .Where(f => f.EndsWith(".json"))
+                  .Select(File.ReadAllText)
+                  .Select(JsonConvert.DeserializeObject<IEnumerable<MetadataObject>>)
+                  .SelectMany(i => i)
+                : Enumerable.Empty<MetadataObject>();
+
+            var json = specs.Concat(speclessCsmApis).Concat(jsonSpecs);
             watch.Stop();
             var response = Request.CreateResponse(HttpStatusCode.OK);
             response.Content = new StringContent(JsonConvert.SerializeObject(json), Encoding.UTF8, "application/json");
@@ -115,9 +126,13 @@ namespace ARMExplorer.Controllers
                     if (i == 1 || i == 2 || i % 2 == 0)
                         sb.AppendFormat("{0}/", parts[i]);
                 }
-                Trace.TraceInformation("CSM_RESOURCE_TYPE; {0}; {1}", info.HttpMethod, sb.ToString().Trim(new[] { '/' }));
+                var csmType = sb.ToString().Trim(new [] { '/' });
+                TelemetryHelper.LogInfo(new CsmTypeEvent { Type = csmType, HttpMethod = info.HttpMethod });
             }
-            catch { }
+            catch (Exception e)
+            {
+                TelemetryHelper.LogException(e);
+            }
         }
 
         private HttpClient GetClient(string baseUri)
@@ -127,6 +142,7 @@ namespace ARMExplorer.Controllers
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
                 Request.Headers.GetValues(Utils.X_MS_OAUTH_TOKEN).FirstOrDefault());
             client.DefaultRequestHeaders.Add("User-Agent", Request.RequestUri.Host);
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
             return client;
         }
     }

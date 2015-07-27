@@ -13,6 +13,7 @@ namespace ARMExplorer.Controllers
         public const string CSMApiVersion = "2014-04-01";
 
         public const string resourcesTemplate = "{0}/subscriptions/{1}/resources?api-version={2}";
+        public const string subscriptionTemplate = "{0}/subscriptions/{1}?api-version={2}";
 
         public static string GetApiVersion(string path)
         {
@@ -46,6 +47,10 @@ namespace ARMExplorer.Controllers
                 return "https://api-current.resources.windows-int.net";
             }
             else if (host.EndsWith(".ant-intapp.windows-int.net", StringComparison.OrdinalIgnoreCase))
+            {
+                return "https://api-dogfood.resources.windows-int.net";
+            }
+            else if (host.EndsWith(".waws-ppedf.windows-int.net", StringComparison.OrdinalIgnoreCase))
             {
                 return "https://api-dogfood.resources.windows-int.net";
             }

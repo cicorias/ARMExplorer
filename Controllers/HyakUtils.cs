@@ -252,11 +252,11 @@ namespace ARMExplorer.Controllers
                 var knownType = jsonValue.Type as Hyak.ServiceModel.KnownType;
                 if (knownType != null && !getDocumentation)
                 {
-                    return GetJsonSchehma(knownType);
+                    return GetJsonSchema(knownType);
                 }
                 else if (knownType != null && getDocumentation)
                 {
-                    return jsonValue.PropertyBinding.Documentation != null
+                    return jsonValue.PropertyBinding != null && jsonValue.PropertyBinding.Documentation != null
                         ? jsonValue.PropertyBinding.Documentation.Text
                         : string.Empty;
                 }
@@ -277,7 +277,7 @@ namespace ARMExplorer.Controllers
                     var knownType = jsonArray.Type.GenericParameters[0] as Hyak.ServiceModel.KnownType;
                     if (knownType != null && !getDocumentation)
                     {
-                        schema.Add(GetJsonSchehma(knownType));
+                        schema.Add(GetJsonSchema(knownType));
                     }
                     else if (knownType != null && getDocumentation)
                     {
@@ -303,12 +303,12 @@ namespace ARMExplorer.Controllers
             throw new InvalidOperationException("Should not reach here for " + serialization.GetType());
         }
 
-        private static JToken GetJsonSchehma(Hyak.ServiceModel.KnownType knownType)
+        private static JToken GetJsonSchema(Hyak.ServiceModel.KnownType knownType)
         {
             var enumType = knownType as Hyak.ServiceModel.EnumType;
             if (enumType != null)
             {
-                return String.Format("({0})", String.Join("|", enumType.Values.Keys.ToArray()));
+                return String.Format("({0})", String.Join("|", enumType.Values.Values.Select(GetEnumSerializedValue)));
             }
 
             if (Nullable.GetUnderlyingType(knownType.UnderlyingType) != null)
@@ -317,6 +317,12 @@ namespace ARMExplorer.Controllers
             }
 
             return String.Format("({0})", knownType.UnderlyingType.Name.ToLowerInvariant());
+        }
+
+        private static string GetEnumSerializedValue(EnumValue enumVal)
+        {
+            // Use the serialized value if available, falling back to the name
+            return !String.IsNullOrEmpty(enumVal.SerializedValue) ? enumVal.SerializedValue : enumVal.Name;
         }
 
         private static object EvaluateExpression(BindingExpression expression)
@@ -444,20 +450,11 @@ namespace ARMExplorer.Controllers
                 },
                 new MetadataObject
                 {
-                    MethodName = "Swap",
-                    HttpMethod = "POST",
-                    Url = HyakUtils.CSMUrl + "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{webSiteName}/slotsswap",
-                    ApiVersion = "2014-06-01",
-                    RequestBody = fakeSwapBody
+                    MethodName = "GetInstanceView",
+                    HttpMethod = "GET",
+                    Url = HyakUtils.CSMUrl + "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Compute/virtualMachines/{vmName}/InstanceView",
+                    ApiVersion = "2015-05-01-preview"
                 },
-                new MetadataObject
-                {
-                    MethodName = "Swap",
-                    HttpMethod = "POST",
-                    Url = HyakUtils.CSMUrl + "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{webSiteName}/slots/{slotName}/slotsswap",
-                    ApiVersion = "2014-06-01",
-                    RequestBody = fakeSwapBody
-                }
             };
         }
 

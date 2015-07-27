@@ -1,4 +1,6 @@
-﻿using System;
+﻿using ARMExplorer.Controllers;
+using ARMExplorer.Telemetry;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -53,6 +55,98 @@ namespace ARMExplorer.Modules
         public void Init(HttpApplication context)
         {
             context.AuthenticateRequest += AuthenticateRequest;
+            context.BeginRequest += BeginRequest;
+            context.PreSendRequestHeaders += PreRequestHeaders;
+        }
+
+        public void PreRequestHeaders(object sender, EventArgs e)
+        {
+            var application = (HttpApplication)sender;
+            application.Response.Headers["instance-name"] = Environment.GetEnvironmentVariable("WEBSITE_SITE_NAME") ?? application.Request.Url.Host;
+        }
+
+        private bool TryGetTenantForSubscription(string subscriptionId, out string tenantId)
+        {
+            tenantId = string.Empty;
+            HyakUtils.CSMUrl = HyakUtils.CSMUrl ?? Utils.GetCSMUrl(HttpContext.Current.Request.Url.Host);
+            var requestUri = string.Format(Utils.subscriptionTemplate, HyakUtils.CSMUrl, subscriptionId, Utils.CSMApiVersion);
+            var request = WebRequest.CreateHttp(requestUri);
+            using (var response = request.GetResponseWithoutExceptions())
+            {
+                if (response.StatusCode != HttpStatusCode.Unauthorized)
+                {
+                    Trace.TraceError(string.Format("Expected status {0} != {1} GET {2}", HttpStatusCode.Unauthorized, response.StatusCode, requestUri));
+                    return false;
+                }
+
+                var header = response.Headers["WWW-Authenticate"];
+                if (header == null || string.IsNullOrEmpty(header))
+                {
+                    Trace.TraceError(string.Format("Missing WWW-Authenticate response header GET {0}", requestUri));
+                    return false;
+                }
+
+                // WWW-Authenicate: Bearer authorization_uri="https://login.windows.net/{tenantId}", error="invalid_token", error_description="The access token is missing or invalid."
+                var index = header.IndexOf("authorization_uri=", StringComparison.OrdinalIgnoreCase);
+                if (index == -1)
+                {
+                    Trace.TraceError(string.Format("Invalid WWW-Authenticate response header {0} GET {1}", header, requestUri));
+                    return false;
+                }
+
+                tenantId =
+                    header.Substring(index).Split(new[] { '\"', '=' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Skip(1)
+                    .Take(1)
+                    .Select(s => new Uri(s).AbsolutePath.Trim('/'))
+                    .First();
+                return !string.IsNullOrEmpty(tenantId);
+            }
+        }
+
+        private bool TryGetCorrectTenant(out string correctTenant)
+        {
+            correctTenant = string.Empty;
+            var path = HttpContext.Current.Request.RawUrl;
+            var index = path.IndexOf("/subscriptions/", StringComparison.OrdinalIgnoreCase);
+
+            if (index == -1) return false;
+
+            var subscription = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries).Skip(1).FirstOrDefault();
+
+            if (subscription == null) return false;
+
+            return TryGetTenantForSubscription(subscription, out correctTenant);
+        }
+
+        private void PutOnCorrectTenant(string currentTenant)
+        {
+            if (string.IsNullOrEmpty(currentTenant)) return;
+
+            string correctTenant;
+            if (TryGetCorrectTenant(out correctTenant))
+            {
+                if (!string.IsNullOrEmpty(currentTenant) && !correctTenant.Equals(currentTenant, StringComparison.OrdinalIgnoreCase))
+                {
+                    HttpContext.Current.Response.Redirect(string.Format("/api/tenants/{0}?cx={1}", correctTenant, WebUtility.UrlEncode(HttpContext.Current.Request.RawUrl)), endResponse: true);
+                }
+            }
+        }
+
+        public void BeginRequest(object sender, EventArgs e)
+        {
+            try
+            {
+                var application = (HttpApplication)sender;
+                if (!application.Request.Url.IsLoopback)
+                {
+                    PutOnCorrectTenant(application.Request.Headers["X-MS-OAUTH-TENANTID"]);
+                }
+            }
+            catch (Exception ex)
+            {
+                TelemetryHelper.LogException(ex);
+            }
         }
 
         public void AuthenticateRequest(object sender, EventArgs e)
@@ -65,8 +159,8 @@ namespace ARMExplorer.Modules
             // only perform authentication if localhost
             if (!request.Url.IsLoopback)
             {
-                var displayName = HttpContext.Current.Request.Headers["X-MS-CLIENT-DISPLAY-NAME"];
-                var principalName = HttpContext.Current.Request.Headers["X-MS-CLIENT-PRINCIPAL-NAME"];
+                var displayName = request.Headers["X-MS-CLIENT-DISPLAY-NAME"];
+                var principalName = request.Headers["X-MS-CLIENT-PRINCIPAL-NAME"];
                 if (!string.IsNullOrWhiteSpace(principalName) ||
                     !string.IsNullOrWhiteSpace(displayName))
                 {
